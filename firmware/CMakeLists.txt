@@ -65,7 +65,7 @@ target_include_directories(nanoFunctionGenerator_firmware PUBLIC
 )
 
 pico_enable_stdio_usb(nanoFunctionGenerator_firmware 1)
-pico_enable_stdio_uart(nanoFunctionGenerator_firmware 0)
+pico_enable_stdio_uart(nanoFunctionGenerator_firmware 1)
 
 add_compile_options(-Wall
         -Wno-format          # int != int32_t as far as the compiler is concerned because gcc has int32_t as long int
