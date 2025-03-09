@@ -1,0 +1,11 @@
+cmake_minimum_required(VERSION 3.27)
+set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
+
+message(STATUS "Building firmware")
+set(PICO_SDK_FETCH_FROM_GIT TRUE)
+include(${CMAKE_SOURCE_DIR}/firmware/pico_sdk_import.cmake)
+message(STATUS "PICO_SDK_PATH: ${PICO_SDK_PATH}")
+project(nanoFunctionGenerator C CXX ASM)
+add_subdirectory("firmware")
