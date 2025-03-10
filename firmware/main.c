@@ -40,6 +40,16 @@ SOFTWARE.
 #include "scpi/scpi.h"
 #include "scpi_interface.h"
 
+scpi_result_t SCPI_setVoltage(scpi_t * context){
+    printf("CONFigure:VOLTage:CHANnel:DC called\r\n");
+    double requestedVoltage = 0.0;
+    if (SCPI_ParamDouble(context, &requestedVoltage, TRUE)) {
+        printf("Requested voltage: %f\r\n", requestedVoltage);
+        return SCPI_RES_OK;
+    }
+    return SCPI_RES_ERR;
+}
+
 
 
 // SCPI command bindings
@@ -60,7 +70,7 @@ scpi_command_t scpi_commands[SCPI_MAX_NUM_COMMANDS] = {
     { .pattern = "*WAI", .callback = SCPI_CoreWai,},
 
 	// Configure voltage DC
-	{ .pattern = "CONFigure:VOLTage:CHANnel:DC", .callback = NULL,},
+	{ .pattern = "CONFigure:VOLTage:CHANnel:DC", .callback = SCPI_setVoltage,},
     { .pattern = "CONFigure:VOLTage:CHANnel:DC?", .callback = NULL,},
 
     // Configure voltage AC
@@ -83,23 +93,23 @@ scpi_command_t scpi_commands[SCPI_MAX_NUM_COMMANDS] = {
 	SCPI_CMD_LIST_END
 };
 
-size_t myWrite(scpi_t * context, const char * data, size_t len) {
+size_t scpi_return_successful(scpi_t * context, const char * data, size_t len) {
     (void) context;
-    printf("myWrite called: %.*s", len, data);
+    printf("%.*s", len, data);
     return 0;//fwrite(data, 1, len, stdout);
 }
 
-int myError(scpi_t * context, int_fast16_t err) {
+int scpiErrorHandler(scpi_t * context, int_fast16_t err) {
     (void) context;
-    printf("myError called\r\n");
+    printf("myError called. Error: %i\r\n", err);
     
     return 0;//fwrite(data, 1, len, stdout);
 }
 
 // SCPI interfaces
 scpi_interface_t scpi_interface = {
-	.write = myWrite, //TODO: Implement this function
-	.error = myError,
+	.write = scpi_return_successful,
+	.error = scpiErrorHandler,
 	.reset = NULL,
 };
 
@@ -119,12 +129,19 @@ void vApplicationMallocFailedHook(void) {
     while (1) {}
 }
 
+//! Maximum number of characters for the serial input buffer
+#define MAX_NUM_INPUT_CHARS 255
+//! Bitmask for char ready in USB buffer
 #define USB_NEW_DATA_IN 1 << 0
-#define NEW_STRING_IN 1 << 0
+//! Bitmask for string ready in rx queue
+#define USB_STRING_READY 1 << 1
+//! Queue handle for the UART receive queue
 QueueHandle_t uartReceiveQueue;
+//! Event group handle for the USB read event
 EventGroupHandle_t usbReadEvent;
-EventGroupHandle_t usbStringReceivedEvent;
+//! SCPI context
 scpi_t scpi_context;
+
 /**
  * @brief Callback for when a character is available in the USB buffer
  * @return Nothing
@@ -133,8 +150,10 @@ void stdio_callback(void) {
     xEventGroupSetBits(usbReadEvent, USB_NEW_DATA_IN);
 }
 
-
-
+/**
+ * @brief Task that reads the USB buffer and puts the characters in a queue
+ * @param p Unused
+ */
 static void usbReadTask(void *p) {
     while(1){
         uint32_t eventbits = xEventGroupWaitBits(
@@ -142,89 +161,104 @@ static void usbReadTask(void *p) {
         if (eventbits & USB_NEW_DATA_IN) {
             char rxChar = getchar_timeout_us(100); // Read the input character
             if(rxChar == '\n' || rxChar == '\r'){
-                xEventGroupSetBits(usbStringReceivedEvent, NEW_STRING_IN);
+                xEventGroupSetBits(usbReadEvent, USB_STRING_READY);
             }
             else{
-                printf("USB data in event. Read %c\n", rxChar);
                 xQueueSend(uartReceiveQueue, &rxChar, portMAX_DELAY);
             }
         }
     }
 }
 
-static void usbStringRead(void *p){
+/**
+ * @brief Task that handles the incoming strings to SCPI commands
+ * @param p Unused
+ */
+static void scpiHandler(void *p){
     while(1){
         uint32_t eventbits = xEventGroupWaitBits(
-            usbStringReceivedEvent, NEW_STRING_IN, pdTRUE, pdFALSE, portMAX_DELAY);
-        if (eventbits & NEW_STRING_IN) {
+            usbReadEvent, USB_STRING_READY, pdTRUE, pdFALSE, portMAX_DELAY);
+        if (eventbits & USB_STRING_READY) {
             // Read the string from the queue
-            char rxString[100] = {0};
+            char rxString[MAX_NUM_INPUT_CHARS] = {0};
             char* pRxString = rxString;
             while (xQueueReceive(uartReceiveQueue, pRxString++, (TickType_t)10)) {}
             *pRxString = '\0';
             printf("Received string: %s\n", rxString);
-            SCPI_Input(&scpi_context, rxString, strlen(rxString));
+            // Call the parser with the received string
+            SCPI_Parse(&scpi_context, rxString, strlen(rxString));
         }
     }
 }
 
-void mainThread(void *pvParameters) {
-    // Print a message
-    printf("Hello, world!\n");
+static void outputHandler(void *p){
+    // Initialize the PWM hardware
+    // int config = pwm_get_default_config();
+    // pwm_init(pwm_gpio_to_slice_num(26), &config, true);
+    // pwm_set_clkdiv(pwm_gpio_to_slice_num(26), 16.0f);
 
-    // Create the queue for the UART receive queue:
-    uartReceiveQueue = xQueueCreate(100, sizeof(char));
-    if (uartReceiveQueue == NULL) {
-        while (1)
-            ;
-    }
-    // Initialize UART.
-    // Initialize the USB data in event group
-    usbReadEvent = xEventGroupCreate();
-    usbStringReceivedEvent = xEventGroupCreate();
-    TaskHandle_t usbReadTaskHandle = NULL;
-    xTaskCreate(
-        usbReadTask,          // Function that implements the task.
-        "USB_READ_TASK",      // Text name for the task.
-        300,                  // Stack size in words, not bytes.
-        NULL,            // Parameter passed into the task.
-        tskIDLE_PRIORITY + 2, // Priority at which the task is created.
-        &usbReadTaskHandle    // Used to pass out the created task's handle.
-    );
-
-    TaskHandle_t usbReadStringHandle = NULL;
-    xTaskCreate(
-        usbStringRead,          // Function that implements the task.
-        "USB STRING_READ_TASK",      // Text name for the task.
-        300,                  // Stack size in words, not bytes.
-        NULL,            // Parameter passed into the task.
-        tskIDLE_PRIORITY + 1, // Priority at which the task is created.
-        &usbReadStringHandle    // Used to pass out the created task's handle.
-    );
-
-    // Set the USB callback:
-    stdio_set_chars_available_callback(stdio_callback, NULL);
-
-
-    // Loop forever
-    while (1) {
+    while(1){
+        
     }
 }
-/*
- * RUNTIME START
+
+/**
+ * @brief Main function
+ * @details Initializes the hardware and starts the FreeRTOS scheduler
+ * @return 0
  */
 int main() {
     // Init MCU hardware
     stdio_init_all();
+
     // Wait a minute to initialize the serial port
     sleep_ms(2000);
 
-    // Start the main thread
-    TaskHandle_t mainThreadHandle = NULL;
-    xTaskCreate(mainThread, "MAIN_TASK", 200, (void *)1, tskIDLE_PRIORITY,
-                &mainThreadHandle);
-
+    // Initialize the SCPI library
     scpi_init(&scpi_context);
+
+    // Create the queue for the UART receive queue:
+    uartReceiveQueue = xQueueCreate(MAX_NUM_INPUT_CHARS, sizeof(char));
+    if (uartReceiveQueue == NULL) {
+        while (1);
+    }
+    
+    // Incoming serial data event group and task
+    usbReadEvent = xEventGroupCreate();
+    TaskHandle_t usbReadTaskHandle = NULL;
+    xTaskCreate(
+        usbReadTask,           // Function that implements the task.
+        "USB READ TASK",       // Text name for the task.
+        300,                   // Stack size in words, not bytes.
+        NULL,                  // Parameter passed into the task.
+        tskIDLE_PRIORITY + 10, // Priority at which the task is created.
+        &usbReadTaskHandle     // Used to pass out the created task's handle.
+    );
+
+    // SCPI handler task
+    TaskHandle_t scpiHandlerHandle = NULL;
+    xTaskCreate(
+        scpiHandler,            // Function that implements the task.
+        "SCPI HANDLER TASK",    // Text name for the task.
+        1024,                   // Stack size in words, not bytes.
+        NULL,                   // Parameter passed into the task.
+        tskIDLE_PRIORITY + 5,   // Priority at which the task is created.
+        &scpiHandlerHandle      // Used to pass out the created task's handle.
+    );
+
+    // SCPI handler task
+    TaskHandle_t outputHandlerHandle = NULL;
+    xTaskCreate(
+        outputHandler,              // Function that implements the task.
+        "OUTPUT HANDLER TASK",      // Text name for the task.
+        1024,                       // Stack size in words, not bytes.
+        NULL,                       // Parameter passed into the task.
+        tskIDLE_PRIORITY + 1,       // Priority at which the task is created.
+        &outputHandlerHandle        // Used to pass out the created task's handle.
+    );
+
+    // Set the USB callback:
+    stdio_set_chars_available_callback(stdio_callback, NULL);
 
     // Start scheduler
     vTaskStartScheduler();
