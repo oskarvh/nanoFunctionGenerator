@@ -40,6 +40,8 @@ SOFTWARE.
 #include "scpi/scpi.h"
 #include "scpi_interface.h"
 
+
+
 // SCPI command bindings
 scpi_command_t scpi_commands[SCPI_MAX_NUM_COMMANDS] = {
     // IEEE Mandated Commands (SCPI std V1999.0 4.1.1)
@@ -83,14 +85,21 @@ scpi_command_t scpi_commands[SCPI_MAX_NUM_COMMANDS] = {
 
 size_t myWrite(scpi_t * context, const char * data, size_t len) {
     (void) context;
-    printf("%.*s", len, data);
+    printf("myWrite called: %.*s", len, data);
+    return 0;//fwrite(data, 1, len, stdout);
+}
+
+int myError(scpi_t * context, int_fast16_t err) {
+    (void) context;
+    printf("myError called\r\n");
+    
     return 0;//fwrite(data, 1, len, stdout);
 }
 
 // SCPI interfaces
 scpi_interface_t scpi_interface = {
 	.write = myWrite, //TODO: Implement this function
-	.error = NULL,
+	.error = myError,
 	.reset = NULL,
 };
 
@@ -115,6 +124,7 @@ void vApplicationMallocFailedHook(void) {
 QueueHandle_t uartReceiveQueue;
 EventGroupHandle_t usbReadEvent;
 EventGroupHandle_t usbStringReceivedEvent;
+scpi_t scpi_context;
 /**
  * @brief Callback for when a character is available in the USB buffer
  * @return Nothing
@@ -131,12 +141,12 @@ static void usbReadTask(void *p) {
             usbReadEvent, USB_NEW_DATA_IN, pdTRUE, pdFALSE, portMAX_DELAY);
         if (eventbits & USB_NEW_DATA_IN) {
             char rxChar = getchar_timeout_us(100); // Read the input character
-            xQueueSend(uartReceiveQueue, &rxChar, portMAX_DELAY);
             if(rxChar == '\n' || rxChar == '\r'){
                 xEventGroupSetBits(usbStringReceivedEvent, NEW_STRING_IN);
             }
             else{
                 printf("USB data in event. Read %c\n", rxChar);
+                xQueueSend(uartReceiveQueue, &rxChar, portMAX_DELAY);
             }
         }
     }
@@ -153,6 +163,7 @@ static void usbStringRead(void *p){
             while (xQueueReceive(uartReceiveQueue, pRxString++, (TickType_t)10)) {}
             *pRxString = '\0';
             printf("Received string: %s\n", rxString);
+            SCPI_Input(&scpi_context, rxString, strlen(rxString));
         }
     }
 }
@@ -212,6 +223,8 @@ int main() {
     TaskHandle_t mainThreadHandle = NULL;
     xTaskCreate(mainThread, "MAIN_TASK", 200, (void *)1, tskIDLE_PRIORITY,
                 &mainThreadHandle);
+
+    scpi_init(&scpi_context);
 
     // Start scheduler
     vTaskStartScheduler();

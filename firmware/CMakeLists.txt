@@ -65,6 +65,9 @@ add_library(scpi_lib STATIC
     ${scpi_parser_SOURCE_DIR}/libscpi/src/ieee488.c
     ${scpi_parser_SOURCE_DIR}/libscpi/src/utils.c
     ${scpi_parser_SOURCE_DIR}/libscpi/src/units.c
+    ${scpi_parser_SOURCE_DIR}/libscpi/src/error.c
+    ${scpi_parser_SOURCE_DIR}/libscpi/src/lexer.c
+    ${scpi_parser_SOURCE_DIR}/libscpi/src/fifo.c
 )
 target_include_directories(scpi_lib PUBLIC
     ${scpi_parser_SOURCE_DIR}/libscpi/src/
