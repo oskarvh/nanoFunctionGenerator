@@ -15,9 +15,18 @@ FetchContent_Declare(
     GIT_PROGRESS TRUE
     GIT_SHALLOW TRUE
 )
+FetchContent_Declare(
+    scpi_parser
+    GIT_REPOSITORY "https://github.com/j123b567/scpi-parser.git"
+    GIT_TAG "v2.3"
+    GIT_PROGRESS TRUE
+    GIT_SHALLOW TRUE
+)
 # Fetch the content without building it
 FetchContent_Populate(freertos_kernel)
+FetchContent_Populate(scpi_parser)
 message(STATUS "freertos_kernel source dir: ${freertos_kernel_SOURCE_DIR}")
+message(STATUS "scpi_parser source dir: ${scpi_parser_SOURCE_DIR}")
 
 ## ---------- PROJECT ----------
 # Define the project
@@ -49,15 +58,31 @@ target_include_directories(freertos PUBLIC
     ${freertos_kernel_SOURCE_DIR}/portable/GCC/ARM_CM0/
 )
 
+# Add the scpi-parser as a library
+add_library(scpi_lib STATIC
+    ${scpi_parser_SOURCE_DIR}/libscpi/src/parser.c
+    ${scpi_parser_SOURCE_DIR}/libscpi/src/minimal.c
+    ${scpi_parser_SOURCE_DIR}/libscpi/src/ieee488.c
+    ${scpi_parser_SOURCE_DIR}/libscpi/src/utils.c
+    ${scpi_parser_SOURCE_DIR}/libscpi/src/units.c
+)
+target_include_directories(scpi_lib PUBLIC
+    ${scpi_parser_SOURCE_DIR}/libscpi/src/
+    ${scpi_parser_SOURCE_DIR}/libscpi/inc/
+    ${scpi_parser_SOURCE_DIR}/libscpi/src/
+)
+
 add_executable(
     nanoFunctionGenerator_firmware 
     ${CMAKE_SOURCE_DIR}/firmware/main.c
+    ${CMAKE_SOURCE_DIR}/firmware/scpi_interface.c
 )
 target_link_libraries(
     nanoFunctionGenerator_firmware 
     PUBLIC
     pico_stdlib
     freertos
+    scpi_lib
 )
 target_include_directories(nanoFunctionGenerator_firmware PUBLIC 
     ${CMAKE_SOURCE_DIR}/firmware/
