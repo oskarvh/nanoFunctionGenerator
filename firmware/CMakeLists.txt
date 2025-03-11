@@ -79,11 +79,13 @@ add_executable(
     nanoFunctionGenerator_firmware 
     ${CMAKE_SOURCE_DIR}/firmware/main.c
     ${CMAKE_SOURCE_DIR}/firmware/scpi_interface.c
+    ${CMAKE_SOURCE_DIR}/firmware/pwm_output.c
 )
 target_link_libraries(
     nanoFunctionGenerator_firmware 
     PUBLIC
     pico_stdlib
+    hardware_pwm
     freertos
     scpi_lib
 )

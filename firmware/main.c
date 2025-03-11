@@ -32,6 +32,7 @@ SOFTWARE.
 #include "event_groups.h"
 #include "queue.h"
 #include "task.h"
+#include "semphr.h"
 
 // RP2040 stdlib
 #include "pico/stdlib.h"
@@ -40,14 +41,37 @@ SOFTWARE.
 #include "scpi/scpi.h"
 #include "scpi_interface.h"
 
+// PWM output
+#include "pwm_output.h"
+
+//! Semaphore to protect the serial port
+xSemaphoreHandle serialMutex;
+
+//! Mutex to protect the configuration
+xSemaphoreHandle configMutex;
+
 scpi_result_t SCPI_setVoltage(scpi_t * context){
-    printf("CONFigure:VOLTage:CHANnel:DC called\r\n");
+    // CONF:VOLT:CHAN:DC 0,3.3
+    if (xSemaphoreTake(serialMutex, 10*portTICK_PERIOD_MS) == pdTRUE) {
+        printf("CONFigure:VOLTage:CHANnel:DC called\r\n");
+        xSemaphoreGive(serialMutex);
+    }
+    uint32_t channel = 0;
+    if (SCPI_ParamUInt32(context, &channel, TRUE)) {
+        if (xSemaphoreTake(serialMutex, 10*portTICK_PERIOD_MS) == pdTRUE) {
+            printf("Requested Channel: %i\r\n", channel);
+            xSemaphoreGive(serialMutex);
+        }
+    }
     double requestedVoltage = 0.0;
     if (SCPI_ParamDouble(context, &requestedVoltage, TRUE)) {
-        printf("Requested voltage: %f\r\n", requestedVoltage);
-        return SCPI_RES_OK;
+        if (xSemaphoreTake(serialMutex, 10*portTICK_PERIOD_MS) == pdTRUE) {
+            printf("Requested voltage: %f\r\n", requestedVoltage);
+            xSemaphoreGive(serialMutex);
+        }
     }
-    return SCPI_RES_ERR;
+    // TODO: take the config mutex and set the parameters in the pwm config, and trigger an update
+    return SCPI_RES_OK;
 }
 
 
@@ -95,14 +119,19 @@ scpi_command_t scpi_commands[SCPI_MAX_NUM_COMMANDS] = {
 
 size_t scpi_return_successful(scpi_t * context, const char * data, size_t len) {
     (void) context;
-    printf("%.*s", len, data);
+    if (xSemaphoreTake(serialMutex, 10*portTICK_PERIOD_MS) == pdTRUE) {
+        printf("%.*s", len, data);
+        xSemaphoreGive(serialMutex);
+    }
     return 0;//fwrite(data, 1, len, stdout);
 }
 
 int scpiErrorHandler(scpi_t * context, int_fast16_t err) {
     (void) context;
-    printf("myError called. Error: %i\r\n", err);
-    
+    if (xSemaphoreTake(serialMutex, 10*portTICK_PERIOD_MS) == pdTRUE) {
+        printf("myError called. Error: %i\r\n", err);
+        xSemaphoreGive(serialMutex);
+    }
     return 0;//fwrite(data, 1, len, stdout);
 }
 
@@ -184,7 +213,10 @@ static void scpiHandler(void *p){
             char* pRxString = rxString;
             while (xQueueReceive(uartReceiveQueue, pRxString++, (TickType_t)10)) {}
             *pRxString = '\0';
-            printf("Received string: %s\n", rxString);
+            if (xSemaphoreTake(serialMutex, 10*portTICK_PERIOD_MS) == pdTRUE) {
+                printf("Received string: %s\n", rxString);
+                xSemaphoreGive(serialMutex);
+            }
             // Call the parser with the received string
             SCPI_Parse(&scpi_context, rxString, strlen(rxString));
         }
@@ -216,6 +248,16 @@ int main() {
 
     // Initialize the SCPI library
     scpi_init(&scpi_context);
+
+    // Init the PWMs
+    init_pwm();
+
+    // Create the semaphore to protect the serial port
+    serialMutex = xSemaphoreCreateBinary();
+    if (serialMutex == NULL) {
+        while (1);
+    }
+    xSemaphoreGive(serialMutex);
 
     // Create the queue for the UART receive queue:
     uartReceiveQueue = xQueueCreate(MAX_NUM_INPUT_CHARS, sizeof(char));
