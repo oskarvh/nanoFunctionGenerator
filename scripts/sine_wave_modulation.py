@@ -52,16 +52,20 @@ def generate_pwm_sine_wave():
     NUM_PERIODS = 2 # Number of periods to generate
 
     # TODO: These should be argument later on
-    num_points_per_period = 100 # This is the wrap count of the PWM counter
+    num_points_per_period = 50 # This is the wrap count of the PWM counter
     dc_offset = 0.5 # Normalized DC offset
     amplitude = 0.5 # Normalized amplitude
-    sine_wave_frequency_hz = 10000
+    sine_wave_frequency_hz = 100000
     phase_offset_rad = np.pi*0.0 # Phase offset in radians
+
+    assert num_points_per_period < MAX_PWM_COUNT, f"num_points_per_period must be less than {MAX_PWM_COUNT}"
 
     sine_wave_period_time = NUM_PERIODS/sine_wave_frequency_hz
     pwm_period_time = NUM_PERIODS*num_points_per_period/PWM_FREQUENCY_RP2040
     num_pwm_periods_per_sine_wave_period = int(sine_wave_period_time/pwm_period_time)
-    num_pwm_samples = num_pwm_periods_per_sine_wave_period*num_points_per_period
+    num_pwm_samples = NUM_PERIODS*num_pwm_periods_per_sine_wave_period*num_points_per_period
+
+
 
     sine_wave_time = np.linspace(0, NUM_PERIODS/sine_wave_frequency_hz, int(num_pwm_samples/num_points_per_period))
     # Generate the sine wave
@@ -75,19 +79,20 @@ def generate_pwm_sine_wave():
     # Now generate the PWM signal. For each num_points_per_period, we'll sample the sine wave
     # and set the duty cycle of the PWM signal to that value
     
-    print(f"{sine_wave_period_time=}, {pwm_period_time=}, {num_pwm_periods_per_sine_wave_period=}")
+    print(f"Number of PWM periods per sine wave period: {num_pwm_periods_per_sine_wave_period}")
     pwm_time = np.linspace(0, NUM_PERIODS/sine_wave_frequency_hz, num_pwm_samples)
 
     sine_wave_idx = 0
     pwm_signal = np.zeros(num_pwm_samples)
     duty_cycle_signal = np.zeros(num_pwm_samples)
     duty_cycle = sine_wave[0]
+    duty_cycle_value = duty_cycle
     pwm_signal_value = 1
     duty_cycle_set_point = 0
     set_point_counter = 0
     for i in range(0, num_pwm_samples):
         if i % num_points_per_period == 0:
-            # Sample the sine wave
+            # Sample the sine wave, truncated to the number of decimal points we'd get
             duty_cycle = sine_wave[sine_wave_idx]
             sine_wave_idx += 1
 
@@ -97,22 +102,28 @@ def generate_pwm_sine_wave():
 
             # Calcualte the duty cycle set point
             duty_cycle_set_point = int(num_points_per_period*duty_cycle)
-        duty_cycle_signal[i] = duty_cycle
+            duty_cycle_value = np.round(100*duty_cycle_set_point/num_points_per_period)/100
+        duty_cycle_signal[i] = duty_cycle_value
         set_point_counter += 1
         if set_point_counter > duty_cycle_set_point:
             pwm_signal_value = 0
         pwm_signal[i] = pwm_signal_value
     
-    plt.subplot(211)
+    plt.subplot(311)
     pwm_plot = plt.plot(pwm_time, pwm_signal)
+    plt.grid()
+    plt.ylabel("Normalized PWM amplitude")
     plt.legend(["PWM signal"], loc = "upper right")
-    plt.subplot(212)
+    plt.subplot(312)
     sine_plot = plt.plot(sine_wave_time, sine_wave)
     dc_plot = plt.plot(pwm_time, duty_cycle_signal)
     plt.legend(["Sine Wave", "PWM Signal duty cycle value"], loc = "upper right")
     plt.grid()
     plt.xlabel("Time [s]")
     plt.ylabel("Normalized Amplitude")
+    # TODO: Figure out polar plots
+    # plt.subplots(subplot_kw={'projection': 'polar'})
+    # plt.plot(pwm_time, duty_cycle_signal)
     plt.show()
 
 
