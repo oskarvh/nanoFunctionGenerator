@@ -30,6 +30,7 @@ this modulation scheme works.
 import numpy as np
 import matplotlib.pyplot as plt
 import argparse
+from scipy import signal
 
 def parse_args():
     """
@@ -52,14 +53,11 @@ def generate_pwm_sine_wave():
     NUM_PERIODS = 2 # Number of periods to generate
 
     # TODO: These should be argument later on
-    num_points_per_period = 2^6 # This is the wrap count of the PWM counter
+    num_points_per_period = 2**8 # This is the wrap count of the PWM counter
     dc_offset = 0.5 # Normalized DC offset
     amplitude = 0.5 # Normalized amplitude
-    sine_wave_frequency_hz = 20000
+    sine_wave_frequency_hz = 20000 # Sine wave frequency in Hz
     phase_offset_rad = np.pi*0.0 # Phase offset in radians
-
-    
-
 
     assert num_points_per_period < MAX_PWM_COUNT, f"num_points_per_period must be less than {MAX_PWM_COUNT}"
 
@@ -130,12 +128,21 @@ def generate_pwm_sine_wave():
     plt.grid()
     plt.xlabel("Time [s]")
     plt.ylabel("Normalized Amplitude")
-    # TODO: Figure out polar plots
-    # plt.subplots(subplot_kw={'projection': 'polar'})
-    # plt.plot(pwm_time, duty_cycle_signal)
+
+    cutoff_frequency = PWM_FREQUENCY_RP2040/num_points_per_period/10
+    print(f"Filter cutoff frequency={cutoff_frequency} Hz")
+
+    normalized_cutoff_frequency = (cutoff_frequency)/(PWM_FREQUENCY_RP2040)
+    # Filter with a butterworth filter with a cutoff frequency at 1.25 MHz to get the simulated analog output
+    filt = signal.butter(2, normalized_cutoff_frequency, 'low', output='sos')
+    filtered = signal.sosfilt(filt, pwm_signal)
+    plt.subplot(313)
+    filtered_plot = plt.plot(pwm_time, filtered)
+    plt.grid()
+    plt.xlabel("Time [s]")
+    plt.ylabel("Filtered PWM signal")
+    plt.legend(["Filtered PWM signal"], loc = "upper right")
     plt.show()
-
-
     pass
 
 if __name__ == "__main__":
