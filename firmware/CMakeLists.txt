@@ -86,6 +86,7 @@ target_link_libraries(
     PUBLIC
     pico_stdlib
     hardware_pwm
+    hardware_dma
     freertos
     scpi_lib
 )

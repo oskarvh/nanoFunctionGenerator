@@ -48,7 +48,7 @@ SOFTWARE.
 xSemaphoreHandle serialMutex;
 
 //! Mutex to protect the configuration
-xSemaphoreHandle configMutex;
+xSemaphoreHandle PWMConfigMutex;
 
 scpi_result_t SCPI_setVoltage(scpi_t * context){
     // CONF:VOLT:CHAN:DC 0,3.3

@@ -56,7 +56,7 @@ def generate_pwm_sine_wave():
     num_points_per_period = 2**8 # This is the wrap count of the PWM counter
     dc_offset = 0.5 # Normalized DC offset
     amplitude = 0.5 # Normalized amplitude
-    sine_wave_frequency_hz = 20000 # Sine wave frequency in Hz
+    sine_wave_frequency_hz = 10000 # Sine wave frequency in Hz
     phase_offset_rad = np.pi*0.0 # Phase offset in radians
 
     assert num_points_per_period < MAX_PWM_COUNT, f"num_points_per_period must be less than {MAX_PWM_COUNT}"
@@ -69,7 +69,7 @@ def generate_pwm_sine_wave():
 
     # Calculate the maximum sine wave frequency we can generate with a num_pwm_periods_per_sine_wave_period of at least 25:
     wanted_pwm_periods_per_sine_wave_period = 25
-    max_sine_wave_frequency_hz = np.round(NUM_PERIODS/(wanted_pwm_periods_per_sine_wave_period*pwm_period_time),2)
+    max_sine_wave_frequency_hz = np.round(NUM_PERIODS/(2*wanted_pwm_periods_per_sine_wave_period*pwm_period_time),2)
 
     print(f"Maximum sine wave frequency with num_pwm_periods_per_sine_wave_period of at least 25 for a wrap count of {num_points_per_period}: {max_sine_wave_frequency_hz} Hz")
     print(f"Number of PWM periods per sine wave period: {num_pwm_periods_per_sine_wave_period}")
@@ -142,8 +142,11 @@ def generate_pwm_sine_wave():
     plt.xlabel("Time [s]")
     plt.ylabel("Filtered PWM signal")
     plt.legend(["Filtered PWM signal"], loc = "upper right")
+
     plt.show()
-    pass
+
+
+    # 
 
 if __name__ == "__main__":
     # Parse arguments

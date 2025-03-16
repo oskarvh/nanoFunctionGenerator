@@ -56,15 +56,28 @@ SOFTWARE.
 #define PWM_PIN_7B 15 // PWM channel 7B
 //! @}
 
+//! RP2040 PWM frequency
+#define FREQ_PWM 125000000
+
+//! Signal type configuration
+typedef enum {
+    SIGNAL_CONFIG_DC = 0,
+    SIGNAL_CONFIG_SINE = 1,
+    SIGNAL_CONFIG_TRIANGLE = 2,
+    SIGNAL_CONFIG_SQUARE = 3,
+} pwm_signal_config_t;
 
 //! Configuration for the PWM output
 typedef struct pwm_channel_config {
     uint8_t channel_num;      //!< The PWM channel to configure
     uint8_t channel_out;       //!< The channel side to configure. A or B
-    //uint32_t wrap_count;//!< The wrap count for the PWM signal. This determines the period
-    //uint32_t set_point; //!< The set point for the PWM signal. This determines the duty cycle
-    uint32_t frequencyHz;  //!< The frequency of the PWM signal period
-    float duty_cycle; //!< The duty cycle of the PWM signal
+    pwm_signal_config_t signal_config; //!< The type of signal to generate
+    uint16_t numBits;  //!< The wrap count for the PWM signal. This correponds to the number of bits.
+    float frequencyHz;  //!< The frequency of the sine/triangle/square wave signal
+    float dc_offset;  //!< The normalized DC offset of the sine/triangle/square wave signal
+    float phase_offset;  //!< The phase offset of the sine/triangle/square wave signal in radians
+    float amplitude;  //!< Normalized amplitude of the sine/triangle/square wave signal
+    uint32_t slice_num; //!< The slice number of the PWM signal
 } pwm_channel_config_t;
 
 
