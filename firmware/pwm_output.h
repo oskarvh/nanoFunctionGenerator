@@ -57,7 +57,7 @@ SOFTWARE.
 //! @}
 
 //! RP2040 PWM frequency
-#define FREQ_PWM 125000000
+#define FREQ_PWM 125000000 // 125 MHz
 
 //! Signal type configuration
 typedef enum {

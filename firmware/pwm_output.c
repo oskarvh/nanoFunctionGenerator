@@ -37,6 +37,8 @@ SOFTWARE.
 #include "FreeRTOS.h"
 #include "semphr.h"
 
+#define MAX_NUM_ENTIRES_LUT 2048 // <! Maximum LUT size
+
 xSemaphoreHandle configMutex;
 
 //! Default configuration array of the PWM channels
@@ -212,24 +214,71 @@ void dmaIrqHandler(void){
     }
 }
 
-uint32_t generate_sine_wave_lut(pwm_channel_config_t *pPwmConfig, uint8_t pwmSlice){
+static uint32_t calculateNumEntires(pwm_channel_config_t *pPwmConfig){
+    return (uint32_t)(((float)FREQ_PWM)/(pPwmConfig->numBits*pPwmConfig->frequencyHz));
+}
+
+uint32_t generate_sine_wave_lut(pwm_channel_config_t *pPwmConfig){
     // Calculate the number of entries in the LUT
     // TODO: Dynamically change the numBits. 
-    uint32_t numEntries = (uint32_t)(((float)FREQ_PWM)/(pPwmConfig->numBits*pPwmConfig->frequencyHz));
+    uint32_t numEntries = calculateNumEntires(pPwmConfig);
+    // numEntires determines the size of the LUT, where the size of the LUT scales with the period of the
+    // signal in that a longer period -> more data. 
+    // However, it also scales with the number of bits, so if we have a long signal we can scale the number of bits
+    // accordingly. One entry takes 2 bytes, and the maximum size should be 1kB, which is 2048 entries. 
+    // Likewise, if the sine wave frequency is too high in comparison with the number of bits, 
+    // we can decrease the number of bits.
+    while(numEntries < 25 && pPwmConfig->numBits > 32){
+        // decrease the number of bits and recalculate
+        pPwmConfig->numBits -= 1;
+        numEntries = calculateNumEntires(pPwmConfig);
+    }
+    while(numEntries > MAX_NUM_ENTIRES_LUT && pPwmConfig->numBits < 65535){
+        // Increase the number of bits and recalculate
+        pPwmConfig->numBits += 1;
+        numEntries = calculateNumEntires(pPwmConfig);
+    }
+    // Check if we could complete the calculation
+    if(numEntries < 25 || numEntries > MAX_NUM_ENTIRES_LUT){
+        // We failed to resolve a sine wave! 
+        return 0;
+    }
+    if(pPwmConfig->numBits > 65535 || pPwmConfig->numBits < 32){
+        // We failed to resolve a sine wave! 
+        return 0;
+    }
     printf("Num entries: %i\r\n",numEntries);
-    pLUTs[pwmSlice] = (uint16_t*)malloc(numEntries*sizeof(uint16_t));
-    if(pLUTs[pwmSlice] == NULL){
+    pLUTs[pPwmConfig->slice_num] = (uint16_t*)malloc(numEntries*sizeof(uint16_t));
+    if(pLUTs[pPwmConfig->slice_num] == NULL){
         // Unable to allocate. Return an entry size of 0
         return 0;
     }
     // Initialize the LUT
-    printf("------------START OF LUT------------------\r\n");
+    //printf("------------START OF LUT------------------\r\n");
     for(uint32_t j = 0; j < numEntries; j++){
-        pLUTs[pwmSlice][j] = 
+        pLUTs[pPwmConfig->slice_num][j] = 
         (uint16_t)((pPwmConfig->numBits)*(pPwmConfig->dc_offset + (pPwmConfig->amplitude/2) * sin((2.0 * M_PI * j) / numEntries + pPwmConfig->phase_offset)));
-        printf("%i\r\n",pLUTs[pwmSlice][j]);
+        //printf("%i\r\n",pLUTs[pwmSlice][j]);
     }
-    printf("-------------END OF LUT-------------------\r\n");
+    //printf("-------------END OF LUT-------------------\r\n");
+    return numEntries;
+}
+
+uint32_t generate_ramp_lut(pwm_channel_config_t *pPwmConfig){
+    // Calculate the number of entries in the LUT
+    uint32_t numEntries = calculateNumEntires(pPwmConfig);
+    printf("Num entries: %i\r\n",numEntries);
+    pLUTs[pPwmConfig->slice_num] = (uint16_t*)malloc(numEntries*sizeof(uint16_t));
+    if(pLUTs[pPwmConfig->slice_num] == NULL){
+        // Unable to allocate. Return an entry size of 0
+        return 0;
+    }
+    pLUTs[pPwmConfig->slice_num][0] = 0;
+    float increment = ((float)numEntries)/((float)pPwmConfig->numBits);
+    for(uint32_t i = 1 ; i < numEntries ; i++){
+        pLUTs[pPwmConfig->slice_num][i] = (uint32_t)((float)(pLUTs[pPwmConfig->slice_num][i-1]) + increment);
+    }
+    return numEntries;
 }
 
 void init_pwm(){
@@ -242,16 +291,6 @@ void init_pwm(){
     The set point is the value at which the PWM signal output toggles, meaning that's what
     is used to create the duty cycle. The set point is calculated as duty_cycle[%]*wrap_count.
     */
-    // gpio_init(3);
-    // gpio_set_dir(3, GPIO_OUT);
-    // gpio_put(3, 0); //DEBUG
-    // Configure the mutex for the PWM configuration
-    // configMutex = xSemaphoreCreateBinary();
-    // if (configMutex == NULL) {
-    //     while (1);
-    // }
-    // // Start by giving the mutex such that the first IRQ can take it
-    // xSemaphoreGive(configMutex);
 
     uint8_t sliceBitMask = 0;
     for(uint8_t i = 0; i < NUM_PWM_CHANNELS; i++){
@@ -279,7 +318,7 @@ void init_pwm(){
             uint32_t numEntries = 0;
             // Create the LUTs if not DC signal
             if(pwm_config_table[i].signal_config == SIGNAL_CONFIG_SINE){
-                numEntries = generate_sine_wave_lut(&(pwm_config_table[i]), slice_num);
+                numEntries = generate_sine_wave_lut(&(pwm_config_table[i]));
             }
             if(numEntries == 0){
                 // There has been an error! 
@@ -340,15 +379,13 @@ void init_pwm(){
             dma_channel_start(dma_ctrl_chan);
         }
         else{
-            // Set the DC level
-            // Set the wrap count
-            pwm_set_wrap(slice_num, pwm_config_table[i].numBits);
-
             // Set the set point
             uint32_t set_point = get_pwm_set_point_from_config(pwm_config_table[i]);
             //pwm_set_gpio_level(channel_num, set_point);
             //pwm_set_chan_level(slice_num, pwm_config_table[i].channel_out, set_point);
         }
+        // Set the wrap based on numBits
+        pwm_set_wrap(slice_num, pwm_config_table[i].numBits);
 
         
     }
