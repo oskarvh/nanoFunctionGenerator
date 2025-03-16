@@ -65,6 +65,7 @@ typedef enum {
     SIGNAL_CONFIG_SINE = 1,
     SIGNAL_CONFIG_TRIANGLE = 2,
     SIGNAL_CONFIG_SQUARE = 3,
+    SIGNAL_CONFIG_SAW = 4,
 } pwm_signal_config_t;
 
 //! Configuration for the PWM output

@@ -24,6 +24,7 @@ SOFTWARE.
 // C
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 // Pico SDK
 #include "pico/stdlib.h"
@@ -56,7 +57,7 @@ pwm_channel_config_t pwm_config_table[NUM_PWM_CHANNELS] = {
     {
         .channel_num = PWM_PIN_1A, 
         .channel_out = PWM_CHAN_A, 
-        .signal_config = SIGNAL_CONFIG_SINE, 
+        .signal_config = SIGNAL_CONFIG_SQUARE, 
         .numBits = 256, 
         .frequencyHz = 1000.0, 
         .dc_offset = 0.5, 
@@ -130,154 +131,107 @@ uint16_t* pLUTs[NUM_PWM_SLICES] = {NULL};
 //! Global table for keeping track of the intended trans_count per DMA channel
 uint32_t dmaTransCount[NUM_DMA_CHANNELS] = {0};
 
-//! Function to get the set point from the duty cycle
-//! @brief This function calculates the initial set point from the duty cycle
-//! @param channel_config The configuration of the PWM channel
-//! @return The set point value for the PWM channel
-static uint32_t get_pwm_set_point_from_config(pwm_channel_config_t channel_config){
-    return (uint32_t)(channel_config.dc_offset * channel_config.numBits);
-    if(channel_config.signal_config == SIGNAL_CONFIG_DC){
-        return (uint32_t)(channel_config.dc_offset * channel_config.numBits);
-    }
-    // else if (channel_config.signal_config == SIGNAL_CONFIG_SINE){
-    //     // Initialize the sine wave, based on DC offset, phase offset, and amplitude
-    //     return (uint32_t)(channel_config.dc_offset + channel_config.amplitude * sin(currentPhaseOffset[channel_config.slice_num]));
-    // }
-    // else if (channel_config.signal_config == SIGNAL_CONFIG_TRIANGLE){
-    //     // Initialize the triangle wave, based on DC offset, phase offset, and amplitude
-    //     return (uint32_t)(channel_config.dc_offset + channel_config.amplitude * (1.0 - fabs(2.0 * (currentTriangleValue[channel_config.slice_num] - 0.5))));
-    // }
-    // else if (channel_config.signal_config == SIGNAL_CONFIG_SQUARE){
-    //     // Initialize the square wave, based on DC offset, phase offset, and amplitude
-    //     return (uint32_t)(channel_config.dc_offset + channel_config.amplitude * (currentSquareValue[channel_config.slice_num] > 0.5 ? 1.0 : -1.0));
-    // }
-    else{
-        printf("Error: Invalid signal configuration\r\n");
-        while(1);
-    }
-}
 
-static uint8_t slice_to_config_channel(uint8_t slice_num){
-    for (uint8_t i = 0; i < NUM_PWM_CHANNELS; i++){
-        if(pwm_config_table[i].slice_num == slice_num){
-            return i;
-        }
-    }
-    return 0xFF; // Error
-}
-
-uint16_t wrap_count = 100;
-void pwm_callback(void){
-    // This function is called when the PWM wraps
-    // It can be used to update the PWM signal
-    int irq;
-    // Get the IRQ status to check which slice caused the interrupt
-
-    // Set GP3 pin high to indicate the interrupt
-    gpio_put(3, 1); // DEBUG
-    //xSemaphoreTakeFromISR(configMutex, NULL);
-    for (int slice=0; slice<8; slice++)
-    {
-        irq = pwm_get_irq_status_mask();
-        
-        if (irq & (1<<slice))
-        {
-            //uint8_t configChannel = slice_to_config_channel(slice);   
-            // Get the set point from the 
-            //uint32_t set_point = get_pwm_set_point_from_config(pwm_config_table[configChannel]);
-            //pwm_set_chan_level(slice, pwm_config_table[i].channel_out, set_point);
-            pwm_clear_irq(slice);
-        }
-    }
-    //xSemaphoreGiveFromISR(configMutex, NULL);
-    // Clear the pin to indicate the interrupt ending
-    gpio_put(3, 0); //DEBUG
-}
-
-void dmaIrqHandler(void){
-    // The DMA only has two IRQ channels, DMA_IRQ_0 and DMA_IRQ_1
-    // DMA_IRQ_1 is not used here, so we need to get by using only one IRQ channel
-    // This means that any DMA channel could cause this interrupt, 
-
-    // Check which channel caused the interrupt
-    for(int channel = 0; channel < NUM_DMA_CHANNELS; channel++){
-        if(dma_channel_get_irq0_status(channel)){
-            dma_channel_acknowledge_irq0(channel);
-            // This channel caused the interrupt
-            // Restart the DMA transfer
-            dma_channel_set_trans_count(channel, dmaTransCount[channel], false);
-            // Start the transfer
-            dma_channel_start(channel);
-            // Clear the interrupt
-            
-        }
-    }
-}
-
+//! @brief Calculate the number of LUT entries based on frequency
+//! @param pPwmConfig Pointer to the PWM config
+//! @return Number of entries required
 static uint32_t calculateNumEntires(pwm_channel_config_t *pPwmConfig){
-    return (uint32_t)(((float)FREQ_PWM)/(pPwmConfig->numBits*pPwmConfig->frequencyHz));
+    uint32_t numEntries = (uint32_t)(((float)FREQ_PWM)/(pPwmConfig->numBits*pPwmConfig->frequencyHz));
+    if(numEntries > MAX_NUM_ENTIRES_LUT){
+        // We're going to have issues with allocate enough data for the LUT.
+        return 0;
+    }
+    return numEntries;
 }
 
-uint32_t generate_sine_wave_lut(pwm_channel_config_t *pPwmConfig){
+//! @brief Allocate the LUT
+//! @param slice_num LUT is indexed by PWM slice. 
+//! @param numEntries Number of entries required in the LUT
+//! @return True if successful, otherwise false
+static bool allocate_lut(uint8_t slice_num, uint32_t numEntries){
+    pLUTs[slice_num] = (uint16_t*)malloc(numEntries*sizeof(uint16_t));
+    if(pLUTs[slice_num] == NULL){
+        // Unable to allocate
+        return false;
+    }
+    return true;
+}
+
+//! @brief Generate a sine wave in the LUT
+//! @param pPwmConfig Pointer to the PWM config
+//! @return Number of entries created for the signal
+static uint32_t generate_sine_wave_lut(pwm_channel_config_t *pPwmConfig){
     // Calculate the number of entries in the LUT
-    // TODO: Dynamically change the numBits. 
+
     uint32_t numEntries = calculateNumEntires(pPwmConfig);
-    // numEntires determines the size of the LUT, where the size of the LUT scales with the period of the
-    // signal in that a longer period -> more data. 
-    // However, it also scales with the number of bits, so if we have a long signal we can scale the number of bits
-    // accordingly. One entry takes 2 bytes, and the maximum size should be 1kB, which is 2048 entries. 
-    // Likewise, if the sine wave frequency is too high in comparison with the number of bits, 
-    // we can decrease the number of bits.
-    while(numEntries < 25 && pPwmConfig->numBits > 32){
-        // decrease the number of bits and recalculate
-        pPwmConfig->numBits -= 1;
-        numEntries = calculateNumEntires(pPwmConfig);
-    }
-    while(numEntries > MAX_NUM_ENTIRES_LUT && pPwmConfig->numBits < 65535){
-        // Increase the number of bits and recalculate
-        pPwmConfig->numBits += 1;
-        numEntries = calculateNumEntires(pPwmConfig);
-    }
     // Check if we could complete the calculation
-    if(numEntries < 25 || numEntries > MAX_NUM_ENTIRES_LUT){
-        // We failed to resolve a sine wave! 
+    if(numEntries < 25){
+        // We're going to fail to generate a good sine wave! 
         return 0;
     }
-    if(pPwmConfig->numBits > 65535 || pPwmConfig->numBits < 32){
-        // We failed to resolve a sine wave! 
-        return 0;
-    }
-    printf("Num entries: %i\r\n",numEntries);
-    pLUTs[pPwmConfig->slice_num] = (uint16_t*)malloc(numEntries*sizeof(uint16_t));
-    if(pLUTs[pPwmConfig->slice_num] == NULL){
+    if(!allocate_lut(pPwmConfig->slice_num, numEntries)){
         // Unable to allocate. Return an entry size of 0
         return 0;
     }
     // Initialize the LUT
-    //printf("------------START OF LUT------------------\r\n");
     for(uint32_t j = 0; j < numEntries; j++){
         pLUTs[pPwmConfig->slice_num][j] = 
         (uint16_t)((pPwmConfig->numBits)*(pPwmConfig->dc_offset + (pPwmConfig->amplitude/2) * sin((2.0 * M_PI * j) / numEntries + pPwmConfig->phase_offset)));
-        //printf("%i\r\n",pLUTs[pwmSlice][j]);
     }
-    //printf("-------------END OF LUT-------------------\r\n");
     return numEntries;
 }
 
+//! @brief Generate a ramp/saw wave in the LUT
+//! @param pPwmConfig Pointer to the PWM config
+//! @return Number of entries created for the signal
 uint32_t generate_ramp_lut(pwm_channel_config_t *pPwmConfig){
     // Calculate the number of entries in the LUT
     uint32_t numEntries = calculateNumEntires(pPwmConfig);
-    printf("Num entries: %i\r\n",numEntries);
-    pLUTs[pPwmConfig->slice_num] = (uint16_t*)malloc(numEntries*sizeof(uint16_t));
-    if(pLUTs[pPwmConfig->slice_num] == NULL){
+    if(!allocate_lut(pPwmConfig->slice_num, numEntries)){
         // Unable to allocate. Return an entry size of 0
         return 0;
     }
-    pLUTs[pPwmConfig->slice_num][0] = 0;
-    float increment = ((float)numEntries)/((float)pPwmConfig->numBits);
+    float value = pPwmConfig->dc_offset - pPwmConfig->amplitude/2;
+    pLUTs[pPwmConfig->slice_num][0] = (uint16_t)value;
+    float increment = pPwmConfig->numBits*pPwmConfig->amplitude/((float)numEntries);
     for(uint32_t i = 1 ; i < numEntries ; i++){
-        pLUTs[pPwmConfig->slice_num][i] = (uint32_t)((float)(pLUTs[pPwmConfig->slice_num][i-1]) + increment);
+        value += increment;
+        pLUTs[pPwmConfig->slice_num][i] = (uint16_t)(value);
     }
+    return numEntries;
+}
+
+uint32_t generate_triangle_lut(pwm_channel_config_t *pPwmConfig){
+    // Calculate the number of entries in the LUT
+    uint32_t numEntries = calculateNumEntires(pPwmConfig);
+    if(!allocate_lut(pPwmConfig->slice_num, numEntries)){
+        // Unable to allocate. Return an entry size of 0
+        return 0;
+    }
+    float value = pPwmConfig->dc_offset - pPwmConfig->amplitude/2;
+    pLUTs[pPwmConfig->slice_num][0] = (uint16_t)value;
+    float increment = pPwmConfig->numBits*2*pPwmConfig->amplitude/((float)numEntries);
+    for(uint32_t i = 1 ; i < numEntries/2 ; i++){
+        value += increment;
+        pLUTs[pPwmConfig->slice_num][i] = (uint16_t)(value);
+    }
+    for(uint32_t i = numEntries/2 ; i < numEntries ; i++){
+        value -= increment;
+        pLUTs[pPwmConfig->slice_num][i] = (uint16_t)(value);
+    }
+    return numEntries;
+}
+
+uint32_t generate_square_wave_lut(pwm_channel_config_t *pPwmConfig){
+    // Calculate the number of entries in the LUT
+    uint32_t numEntries = calculateNumEntires(pPwmConfig);
+    if(!allocate_lut(pPwmConfig->slice_num, numEntries)){
+        // Unable to allocate. Return an entry size of 0
+        return 0;
+    }
+    // Set the first half of the LUT to 0, and the second half to 1
+    memset(&(pLUTs[pPwmConfig->slice_num][0]), (uint16_t)(pPwmConfig->dc_offset-pPwmConfig->amplitude/2), (size_t)(sizeof(uint16_t)*numEntries/2));
+    memset(&(pLUTs[pPwmConfig->slice_num][numEntries/2]), (uint16_t)(pPwmConfig->dc_offset+pPwmConfig->amplitude/2), (size_t)(sizeof(uint16_t)*numEntries/2));
     return numEntries;
 }
 
@@ -311,15 +265,33 @@ void init_pwm(){
 
         // Enable the PWM IRQ and configure, but only if this isn't a DC signal:
         if(pwm_config_table[i].signal_config != SIGNAL_CONFIG_DC){
-            // Enable the PWM IRQ
-            // pwm_set_irq_enabled(slice_num, true);
-            // irq_set_exclusive_handler(PWM_DEFAULT_IRQ_NUM(), pwm_callback);
-            // irq_set_enabled(PWM_DEFAULT_IRQ_NUM(), true);
+
             uint32_t numEntries = 0;
             // Create the LUTs if not DC signal
-            if(pwm_config_table[i].signal_config == SIGNAL_CONFIG_SINE){
+            switch (pwm_config_table[i].signal_config)
+            {
+            case SIGNAL_CONFIG_SINE:
                 numEntries = generate_sine_wave_lut(&(pwm_config_table[i]));
+                break;
+            case SIGNAL_CONFIG_TRIANGLE:
+                numEntries = generate_triangle_lut(&(pwm_config_table[i]));
+                break;
+            case SIGNAL_CONFIG_SQUARE:
+                numEntries = generate_square_wave_lut(&(pwm_config_table[i]));
+                break;
+            case SIGNAL_CONFIG_SAW:
+                numEntries = generate_ramp_lut(&(pwm_config_table[i]));
+                break;
+            
+            default:
+                numEntries = 0;
+                break;
             }
+            printf("----------------- START OF LUT -----------------\r\n");
+            for(uint32_t i = 0 ; i < numEntries;i++){
+                printf("%i\r\n", pLUTs[slice_num][i]);
+            }
+            printf("------------------ END OF LUT ------------------\r\n");
             if(numEntries == 0){
                 // There has been an error! 
                 while(1);
@@ -368,21 +340,13 @@ void init_pwm(){
                 1,                                  // One single transfer
                 false                               // Don't start immediately
             );
-            
-            // dmaTransCount[pwm_dma_chan] = numEntries;
-            // // Set up the IRQ for the DMA channel to restart the DMA transfer_count
-            // dma_channel_set_irq0_enabled(pwm_dma_chan, true);
-            // irq_set_exclusive_handler(DMA_IRQ_0, dmaIrqHandler);
-            // irq_set_enabled(DMA_IRQ_0, true);
 
-            // // Start the channel
+            // Start the control channel
             dma_channel_start(dma_ctrl_chan);
         }
         else{
             // Set the set point
-            uint32_t set_point = get_pwm_set_point_from_config(pwm_config_table[i]);
-            //pwm_set_gpio_level(channel_num, set_point);
-            //pwm_set_chan_level(slice_num, pwm_config_table[i].channel_out, set_point);
+            uint32_t set_point = (uint32_t)(pwm_config_table[i].dc_offset * pwm_config_table[i].numBits);
         }
         // Set the wrap based on numBits
         pwm_set_wrap(slice_num, pwm_config_table[i].numBits);
