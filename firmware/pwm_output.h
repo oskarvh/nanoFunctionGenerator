@@ -32,6 +32,11 @@ SOFTWARE.
 #include "pico/stdlib.h"
 #include "hardware/pwm.h"
 
+// FreeRTOS
+#include "FreeRTOS.h"
+#include "semphr.h"
+#include "queue.h"
+
 
 //! defgroup PWM_output PWM Output
 //! @{
@@ -59,6 +64,9 @@ SOFTWARE.
 //! RP2040 PWM frequency
 #define FREQ_PWM 125000000 // 125 MHz
 
+//! Maximum number of cascaded settings
+#define MAX_NUM_INCOMING_SETTINGS 10
+
 //! Signal type configuration
 typedef enum {
     SIGNAL_CONFIG_DC = 0,
@@ -70,20 +78,32 @@ typedef enum {
 
 //! Configuration for the PWM output
 typedef struct pwm_channel_config {
-    uint8_t channel_num;      //!< The PWM channel to configure
-    uint8_t channel_out;       //!< The channel side to configure. A or B
+    uint8_t channel_num;        //!< The PWM channel to configure
+    uint8_t channel_out;        //!< The channel side to configure. A or B
     pwm_signal_config_t signal_config; //!< The type of signal to generate
-    uint16_t numBits;  //!< The wrap count for the PWM signal. This correponds to the number of bits.
-    float frequencyHz;  //!< The frequency of the sine/triangle/square wave signal
-    float dc_offset;  //!< The normalized DC offset of the sine/triangle/square wave signal
-    float phase_offset;  //!< The phase offset of the sine/triangle/square wave signal in radians
-    float amplitude;  //!< Normalized amplitude of the sine/triangle/square wave signal
-    uint32_t slice_num; //!< The slice number of the PWM signal
+    uint16_t numBits;           //!< The wrap count for the PWM signal. This correponds to the number of bits.
+    float frequencyHz;          //!< The frequency of the sine/triangle/square wave signal
+    float dc_offset;            //!< The normalized DC offset of the sine/triangle/square wave signal
+    float phase_offset;         //!< The phase offset of the sine/triangle/square wave signal in radians
+    float amplitude;            //!< Normalized amplitude of the sine/triangle/square wave signal
+    uint32_t slice_num;         //!< The slice number of the PWM signal
+    int8_t output_channel_num;  //! Output channel in reference to the hardware. -1 means it's not connected.
+    int pwm_dma_channel;        //! DMA data channel number. -1 if no DMA is used.
+    int dma_ctrl_channel;       //! DMA control channel number. -1 if no DMA is used.
 } pwm_channel_config_t;
 
+//! Mutex to protect the configuration
+extern xSemaphoreHandle PWMConfigMutex;
 
+//! Queue for changing settings
+extern QueueHandle_t pwmSettingsQueue;
 
+//! Default configuration array of the PWM channels
+extern pwm_channel_config_t pwm_config_table[NUM_PWM_CHANNELS];
 
-void init_pwm();
+//! Task for the PWM handler
+//! @brief Task handler for the PWM outputs
+//! @param p Unused pointer to data
+void outputHandler(void *p);
 
 #endif // PWM_OUTPUT_H

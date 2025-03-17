@@ -31,7 +31,6 @@ SOFTWARE.
 #include "task.h"
 #include "event_groups.h"
 #include "queue.h"
-#include "task.h"
 #include "semphr.h"
 
 // RP2040 stdlib
@@ -47,11 +46,38 @@ SOFTWARE.
 //! Semaphore to protect the serial port
 xSemaphoreHandle serialMutex;
 
-//! Mutex to protect the configuration
-xSemaphoreHandle PWMConfigMutex;
+//! Hardware settings are read with pin 26 and 27
+#define HARDWARE_SETTING_0 26
+//! Hardware settings are read with pin 26 and 27
+#define HARDWARE_SETTING_1 27
+//! Number of hardware configurations
+#define NUM_SUPPORTED_HARDWARE 1
+
+static uint8_t hardwareSettingIndex = 0;
+
+//! Hardware settings, will be read from the board! 
+typedef struct hardwareSettings {
+    float pwmPinOutputVoltageMax;   //! Maximum voltage on the PWM output pin, in V
+    float pwmPinOutputVoltageMin;   //! Minimum voltage on the PWM output pin, in V
+    float outputVoltageMax;         //! Maximum output voltage after buffers, in V
+    float outputVoltageMin;         //! Minimum output voltage after buffers, in V 
+    float outputVoltageOffset;      //! Buffered voltage static offset, in V
+    char  name[30];                 //! The name of this configuration
+} hardwareSettings_t;
+
+hardwareSettings_t hardwareSettings[NUM_SUPPORTED_HARDWARE] = {
+    {
+        .pwmPinOutputVoltageMax = 3.3,  // Maximum output voltage of the PWM pin
+        .pwmPinOutputVoltageMin = 0.0,  // Minimum output voltage of the PWM pin
+        .outputVoltageMax = 3.3,        // This config has no amplification
+        .outputVoltageMin = 0.0,        // This config has no amplification or offset.
+        .outputVoltageOffset = 1.65,    // The middle voltage is 3.3V/2, since that's our normalized 0 level.
+        .name = "NO_GAIN"               // No gain here
+    },
+};
 
 scpi_result_t SCPI_setVoltage(scpi_t * context){
-    // CONF:VOLT:CHAN:DC 0,3.3
+    // CONF:VOLT:CHAN:DC 0,1.65
     if (xSemaphoreTake(serialMutex, 10*portTICK_PERIOD_MS) == pdTRUE) {
         printf("CONFigure:VOLTage:CHANnel:DC called\r\n");
         xSemaphoreGive(serialMutex);
@@ -70,6 +96,43 @@ scpi_result_t SCPI_setVoltage(scpi_t * context){
             xSemaphoreGive(serialMutex);
         }
     }
+    // Make a copy of the channel config
+    pwm_channel_config_t pwmChannelConfigCopy;
+    if (xSemaphoreTake(PWMConfigMutex, 1000*portTICK_PERIOD_MS) == pdTRUE) {
+        // Find the config for the channel and copy over to a local copy.
+        bool channelFound = false;
+        for(int i = 0 ; i < NUM_PWM_CHANNELS ; i++){
+            if(pwm_config_table[i].output_channel_num == channel){
+                memcpy(&pwmChannelConfigCopy, &(pwm_config_table[i]), sizeof(pwm_channel_config_t));
+                channelFound = true;
+                break;
+            }
+        }
+        // Give back the semaphore
+        xSemaphoreGive(PWMConfigMutex);
+        
+        // Check if the channel wasn't found
+        if(!channelFound){
+            return SCPI_RES_ERR;
+        }
+    
+        // Based on the requested voltage, calculate the normalized voltage DC offset
+        // This is going to be the DC offset in volts from the bottom divided by the full scope of the 
+        // output voltage. So a DC offset of 1.65V on a 3.3V span is 1.65-0/(3.3-0) = 0.5. 
+        // For something like a +/-10V, a 5V offset is going to be (5-(-10))/(10-(-10)) = 15/20
+        pwmChannelConfigCopy.dc_offset = (requestedVoltage-hardwareSettings[hardwareSettingIndex].outputVoltageMin)/(hardwareSettings[hardwareSettingIndex].outputVoltageMax-hardwareSettings[hardwareSettingIndex].outputVoltageMin);
+        
+        // Send the config to the PWM handler:
+        xQueueSend(pwmSettingsQueue, &pwmChannelConfigCopy, portMAX_DELAY);
+    }
+    else{
+        printf("ERROR: UNABLE TO OBTAIN PWMConfigMutex SEMAPHORE IN SCPI_setVoltage");
+        while(1);
+        return SCPI_RES_ERR;
+    }
+    // Change the pwmChannelConfigCopy 
+
+
     // TODO: take the config mutex and set the parameters in the pwm config, and trigger an update
     return SCPI_RES_OK;
 }
@@ -175,7 +238,7 @@ scpi_t scpi_context;
  * @brief Callback for when a character is available in the USB buffer
  * @return Nothing
  */
-void stdio_callback(void) {
+void stdio_callback(void *param) {
     xEventGroupSetBits(usbReadEvent, USB_NEW_DATA_IN);
 }
 
@@ -223,16 +286,7 @@ static void scpiHandler(void *p){
     }
 }
 
-static void outputHandler(void *p){
-    // Initialize the PWM hardware
-    // int config = pwm_get_default_config();
-    // pwm_init(pwm_gpio_to_slice_num(26), &config, true);
-    // pwm_set_clkdiv(pwm_gpio_to_slice_num(26), 16.0f);
 
-    while(1){
-        
-    }
-}
 
 /**
  * @brief Main function
@@ -249,9 +303,6 @@ int main() {
     // Initialize the SCPI library
     scpi_init(&scpi_context);
 
-    // Init the PWMs
-    init_pwm();
-
     // Create the semaphore to protect the serial port
     serialMutex = xSemaphoreCreateBinary();
     if (serialMutex == NULL) {
@@ -259,9 +310,21 @@ int main() {
     }
     xSemaphoreGive(serialMutex);
 
+    // Create the mutex for the PWM config array
+    PWMConfigMutex = xSemaphoreCreateBinary();
+    if (PWMConfigMutex == NULL) {
+        while (1);
+    }
+    xSemaphoreGive(PWMConfigMutex);
+
     // Create the queue for the UART receive queue:
     uartReceiveQueue = xQueueCreate(MAX_NUM_INPUT_CHARS, sizeof(char));
     if (uartReceiveQueue == NULL) {
+        while (1);
+    }
+
+    pwmSettingsQueue = xQueueCreate(MAX_NUM_INCOMING_SETTINGS, sizeof(pwm_channel_config_t));
+    if (pwmSettingsQueue == NULL) {
         while (1);
     }
     
