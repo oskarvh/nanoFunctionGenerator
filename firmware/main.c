@@ -25,6 +25,7 @@ SOFTWARE.
 // C
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 
 // Freertos:
 #include "FreeRTOS.h"
@@ -76,7 +77,7 @@ hardwareSettings_t hardwareSettings[NUM_SUPPORTED_HARDWARE] = {
     },
 };
 
-scpi_result_t SCPI_setVoltage(scpi_t * context){
+scpi_result_t SCPI_setDCVoltage(scpi_t * context){
     // CONF:VOLT:CHAN:DC 0,1.65
     if (xSemaphoreTake(serialMutex, 10*portTICK_PERIOD_MS) == pdTRUE) {
         printf("CONFigure:VOLTage:CHANnel:DC called\r\n");
@@ -88,13 +89,19 @@ scpi_result_t SCPI_setVoltage(scpi_t * context){
             printf("Requested Channel: %i\r\n", channel);
             xSemaphoreGive(serialMutex);
         }
+    } else {
+        // Unable to read out the channel! 
+        return SCPI_RES_ERR;
     }
     double requestedVoltage = 0.0;
     if (SCPI_ParamDouble(context, &requestedVoltage, TRUE)) {
         if (xSemaphoreTake(serialMutex, 10*portTICK_PERIOD_MS) == pdTRUE) {
-            printf("Requested voltage: %f\r\n", requestedVoltage);
+            printf("Requested offset (voltage): %f\r\n", requestedVoltage);
             xSemaphoreGive(serialMutex);
         }
+    } else {
+        // Unable to read out the channel! 
+        return SCPI_RES_ERR;
     }
     // Make a copy of the channel config
     pwm_channel_config_t pwmChannelConfigCopy;
@@ -126,18 +133,310 @@ scpi_result_t SCPI_setVoltage(scpi_t * context){
         xQueueSend(pwmSettingsQueue, &pwmChannelConfigCopy, portMAX_DELAY);
     }
     else{
-        printf("ERROR: UNABLE TO OBTAIN PWMConfigMutex SEMAPHORE IN SCPI_setVoltage");
-        while(1);
+        printf("ERROR: UNABLE TO OBTAIN PWMConfigMutex SEMAPHORE IN SCPI_setDCVoltage\r\n");
         return SCPI_RES_ERR;
     }
-    // Change the pwmChannelConfigCopy 
+    return SCPI_RES_OK;
+}
 
+scpi_result_t SCPI_setAmplitudeVoltage(scpi_t * context){
+    // CONF:VOLT:CHAN:DC 0,1.65
+    if (xSemaphoreTake(serialMutex, 10*portTICK_PERIOD_MS) == pdTRUE) {
+        printf("CONFigure:VOLTage:CHANnel:AMPLitude called\r\n");
+        xSemaphoreGive(serialMutex);
+    }
+    uint32_t channel = 0;
+    if (SCPI_ParamUInt32(context, &channel, TRUE)) {
+        if (xSemaphoreTake(serialMutex, 10*portTICK_PERIOD_MS) == pdTRUE) {
+            printf("Requested Channel: %i\r\n", channel);
+            xSemaphoreGive(serialMutex);
+        }
+    } else {
+        // Unable to read out the channel! 
+        return SCPI_RES_ERR;
+    }
+    double requestedVoltage = 0.0;
+    if (SCPI_ParamDouble(context, &requestedVoltage, TRUE)) {
+        if (xSemaphoreTake(serialMutex, 10*portTICK_PERIOD_MS) == pdTRUE) {
+            printf("Requested amplitude (voltage): %f\r\n", requestedVoltage);
+            xSemaphoreGive(serialMutex);
+        }
+    } else {
+        // Unable to read out the channel! 
+        return SCPI_RES_ERR;
+    }
+    // Make a copy of the channel config
+    pwm_channel_config_t pwmChannelConfigCopy;
+    if (xSemaphoreTake(PWMConfigMutex, 1000*portTICK_PERIOD_MS) == pdTRUE) {
+        // Find the config for the channel and copy over to a local copy.
+        bool channelFound = false;
+        for(int i = 0 ; i < NUM_PWM_CHANNELS ; i++){
+            if(pwm_config_table[i].output_channel_num == channel){
+                memcpy(&pwmChannelConfigCopy, &(pwm_config_table[i]), sizeof(pwm_channel_config_t));
+                channelFound = true;
+                break;
+            }
+        }
+        // Give back the semaphore
+        xSemaphoreGive(PWMConfigMutex);
+        
+        // Check if the channel wasn't found
+        if(!channelFound){
+            return SCPI_RES_ERR;
+        }
+    
+        // The amplitude is peak to peak, and it's normalized in the config. 
+        // Hence, 1 is full peak to peak amplitude assuming a mid-range offset.
+        // This this then means that the normalized peak to peak voltage is found
+        // by dividing the requested voltage by the full span of the output
+        pwmChannelConfigCopy.amplitude = requestedVoltage/(hardwareSettings[hardwareSettingIndex].outputVoltageMax-hardwareSettings[hardwareSettingIndex].outputVoltageMin);
+        
+        // Send the config to the PWM handler:
+        xQueueSend(pwmSettingsQueue, &pwmChannelConfigCopy, portMAX_DELAY);
+    }
+    else{
+        printf("ERROR: UNABLE TO OBTAIN PWMConfigMutex SEMAPHORE IN SCPI_setAmplitudeVoltage\r\n");
+        return SCPI_RES_ERR;
+    }
+    return SCPI_RES_OK;
+}
 
-    // TODO: take the config mutex and set the parameters in the pwm config, and trigger an update
+scpi_result_t SCPI_setFrequency(scpi_t * context){
+    // CONF:VOLT:CHAN:DC 0,1.65
+    if (xSemaphoreTake(serialMutex, 10*portTICK_PERIOD_MS) == pdTRUE) {
+        printf("CONFigure:FREQuency:CHANnel:HZ called\r\n");
+        xSemaphoreGive(serialMutex);
+    }
+    uint32_t channel = 0;
+    if (SCPI_ParamUInt32(context, &channel, TRUE)) {
+        if (xSemaphoreTake(serialMutex, 10*portTICK_PERIOD_MS) == pdTRUE) {
+            printf("Requested Channel: %i\r\n", channel);
+            xSemaphoreGive(serialMutex);
+        }
+    } else {
+        // Unable to read out the channel! 
+        return SCPI_RES_ERR;
+    }
+    double frequency = 0.0;
+    scpi_number_t frequencySetting;
+    if (SCPI_ParamNumber(context, NULL, &frequencySetting, TRUE)) {
+        frequency = frequencySetting.content.value;
+        if (xSemaphoreTake(serialMutex, 10*portTICK_PERIOD_MS) == pdTRUE) {
+            printf("Requested frequency (Hz): %f\r\n", frequency);
+            xSemaphoreGive(serialMutex);
+        }
+    } else {
+        // Unable to read out the channel! 
+        return SCPI_RES_ERR;
+    }
+    // Make a copy of the channel config
+    pwm_channel_config_t pwmChannelConfigCopy;
+    if (xSemaphoreTake(PWMConfigMutex, 1000*portTICK_PERIOD_MS) == pdTRUE) {
+        // Find the config for the channel and copy over to a local copy.
+        bool channelFound = false;
+        for(int i = 0 ; i < NUM_PWM_CHANNELS ; i++){
+            if(pwm_config_table[i].output_channel_num == channel){
+                memcpy(&pwmChannelConfigCopy, &(pwm_config_table[i]), sizeof(pwm_channel_config_t));
+                channelFound = true;
+                break;
+            }
+        }
+        // Give back the semaphore
+        xSemaphoreGive(PWMConfigMutex);
+        
+        // Check if the channel wasn't found
+        if(!channelFound){
+            return SCPI_RES_ERR;
+        }
+    
+        // The frequency is already in Hz in both cases
+        pwmChannelConfigCopy.frequencyHz = frequency;
+        
+        // Send the config to the PWM handler:
+        xQueueSend(pwmSettingsQueue, &pwmChannelConfigCopy, portMAX_DELAY);
+    }
+    else{
+        printf("ERROR: UNABLE TO OBTAIN PWMConfigMutex SEMAPHORE IN SCPI_setFrequency\r\n");
+        return SCPI_RES_ERR;
+    }
     return SCPI_RES_OK;
 }
 
 
+scpi_result_t SCPI_setPhaseOffset(scpi_t * context){
+    // CONF:VOLT:CHAN:DC 0,1.65
+    if (xSemaphoreTake(serialMutex, 10*portTICK_PERIOD_MS) == pdTRUE) {
+        printf("CONFigure:PHASe:CHANnel:DEGrees called\r\n");
+        xSemaphoreGive(serialMutex);
+    }
+    uint32_t channel = 0;
+    if (SCPI_ParamUInt32(context, &channel, TRUE)) {
+        if (xSemaphoreTake(serialMutex, 10*portTICK_PERIOD_MS) == pdTRUE) {
+            printf("Requested Channel: %i\r\n", channel);
+            xSemaphoreGive(serialMutex);
+        }
+    } else {
+        // Unable to read out the channel! 
+        return SCPI_RES_ERR;
+    }
+    double phaseOffsetDeg = 0.0;
+    if (SCPI_ParamDouble(context, &phaseOffsetDeg, TRUE)) {
+        if (xSemaphoreTake(serialMutex, 10*portTICK_PERIOD_MS) == pdTRUE) {
+            printf("Requested phase offset (degrees): %f\r\n", phaseOffsetDeg);
+            xSemaphoreGive(serialMutex);
+        }
+    } else {
+        // Unable to read out the channel! 
+        return SCPI_RES_ERR;
+    }
+    // Make a copy of the channel config
+    pwm_channel_config_t pwmChannelConfigCopy;
+    if (xSemaphoreTake(PWMConfigMutex, 1000*portTICK_PERIOD_MS) == pdTRUE) {
+        // Find the config for the channel and copy over to a local copy.
+        bool channelFound = false;
+        for(int i = 0 ; i < NUM_PWM_CHANNELS ; i++){
+            if(pwm_config_table[i].output_channel_num == channel){
+                memcpy(&pwmChannelConfigCopy, &(pwm_config_table[i]), sizeof(pwm_channel_config_t));
+                channelFound = true;
+                break;
+            }
+        }
+        // Give back the semaphore
+        xSemaphoreGive(PWMConfigMutex);
+        
+        // Check if the channel wasn't found
+        if(!channelFound){
+            return SCPI_RES_ERR;
+        }
+    
+        // The frequency is already in Hz in both cases
+        pwmChannelConfigCopy.phase_offset = phaseOffsetDeg*M_PI/180;
+        
+        // Send the config to the PWM handler:
+        xQueueSend(pwmSettingsQueue, &pwmChannelConfigCopy, portMAX_DELAY);
+    }
+    else{
+        printf("ERROR: UNABLE TO OBTAIN PWMConfigMutex SEMAPHORE IN SCPI_setPhaseOffset\r\n");
+        return SCPI_RES_ERR;
+    }
+    return SCPI_RES_OK;
+}
+
+
+scpi_result_t SCPI_setChannelFunction(scpi_t * context){
+    // CONF:VOLT:CHAN:DC 0,1.65
+    if (xSemaphoreTake(serialMutex, 10*portTICK_PERIOD_MS) == pdTRUE) {
+        printf("CONFigure:FUNCtion:CHANnel called\r\n");
+        xSemaphoreGive(serialMutex);
+    }
+    uint32_t channel = 0;
+    if (SCPI_ParamUInt32(context, &channel, TRUE)) {
+        if (xSemaphoreTake(serialMutex, 10*portTICK_PERIOD_MS) == pdTRUE) {
+            printf("Requested Channel: %i\r\n", channel);
+            xSemaphoreGive(serialMutex);
+        }
+    } else {
+        // Unable to read out the channel! 
+        return SCPI_RES_ERR;
+    }
+    const scpi_choice_def_t options[] = {
+        {
+            .name = "ON",
+            .tag = 0, // IMPORTANT! ALIGN THIS TO THE INDEX!
+        },
+        {
+            .name = "OFF",
+            .tag = 1, // IMPORTANT! ALIGN THIS TO THE INDEX!
+        },
+        {
+            .name = "DC",
+            .tag = 2, // IMPORTANT! ALIGN THIS TO THE INDEX!
+        },
+        {
+            .name = "SINE",
+            .tag = 3, // IMPORTANT! ALIGN THIS TO THE INDEX!
+        },
+        {
+            .name = "SQUARE",
+            .tag = 4, // IMPORTANT! ALIGN THIS TO THE INDEX!
+        },
+        {
+            .name = "TRIANGLE",
+            .tag = 5, // IMPORTANT! ALIGN THIS TO THE INDEX!
+        },
+        {
+            .name = "RAMP",
+            .tag = 6, // IMPORTANT! ALIGN THIS TO THE INDEX!
+        },
+        SCPI_CHOICE_LIST_END,
+    };
+    int32_t value = 0;
+    if (SCPI_ParamChoice(context, options, &value, TRUE)) {
+        if (xSemaphoreTake(serialMutex, 10*portTICK_PERIOD_MS) == pdTRUE) {
+            printf("Requested value: %i\r\n", value);
+            xSemaphoreGive(serialMutex);
+        }
+    } else {
+        // Unable to read out the channel! 
+        return SCPI_RES_ERR;
+    }
+    // Make a copy of the channel config
+    pwm_channel_config_t pwmChannelConfigCopy;
+    if (xSemaphoreTake(PWMConfigMutex, 1000*portTICK_PERIOD_MS) == pdTRUE) {
+        // Find the config for the channel and copy over to a local copy.
+        bool channelFound = false;
+        for(int i = 0 ; i < NUM_PWM_CHANNELS ; i++){
+            if(pwm_config_table[i].output_channel_num == channel){
+                memcpy(&pwmChannelConfigCopy, &(pwm_config_table[i]), sizeof(pwm_channel_config_t));
+                channelFound = true;
+                break;
+            }
+        }
+        // Give back the semaphore
+        xSemaphoreGive(PWMConfigMutex);
+        
+        // Check if the channel wasn't found
+        if(!channelFound){
+            return SCPI_RES_ERR;
+        }
+        switch (value)
+        {
+        case 0: // ON
+            pwmChannelConfigCopy.output_enabled = true;
+            break;
+        case 1: // OFF
+            pwmChannelConfigCopy.output_enabled = false;
+            break;
+        case 2: // DC
+            pwmChannelConfigCopy.signal_config = SIGNAL_CONFIG_DC;
+            break;
+        case 3: // SINE
+            pwmChannelConfigCopy.signal_config = SIGNAL_CONFIG_SINE;
+            break;
+        case 4: // SQUARE
+            pwmChannelConfigCopy.signal_config = SIGNAL_CONFIG_SQUARE;
+            break;
+        case 5: // TRIANGLE
+            pwmChannelConfigCopy.signal_config = SIGNAL_CONFIG_TRIANGLE;
+            break;
+        case 6: // RAMP
+            pwmChannelConfigCopy.signal_config = SIGNAL_CONFIG_SAW;
+            break;
+        
+        default:
+            printf("ERROR: UNKNOWN PARAMETER: %i\r\n", value);
+            return SCPI_RES_ERR;
+        }
+        
+        // Send the config to the PWM handler:
+        xQueueSend(pwmSettingsQueue, &pwmChannelConfigCopy, portMAX_DELAY);
+    }
+    else{
+        printf("ERROR: UNABLE TO OBTAIN PWMConfigMutex SEMAPHORE IN SCPI_setChannelFunction\r\n");
+        return SCPI_RES_ERR;
+    }
+    return SCPI_RES_OK;
+}
 
 // SCPI command bindings
 scpi_command_t scpi_commands[SCPI_MAX_NUM_COMMANDS] = {
@@ -157,24 +456,19 @@ scpi_command_t scpi_commands[SCPI_MAX_NUM_COMMANDS] = {
     { .pattern = "*WAI", .callback = SCPI_CoreWai,},
 
 	// Configure voltage DC
-	{ .pattern = "CONFigure:VOLTage:CHANnel:DC", .callback = SCPI_setVoltage,},
-    { .pattern = "CONFigure:VOLTage:CHANnel:DC?", .callback = NULL,},
+	{ .pattern = "CONFigure:VOLTage:CHANnel:DC", .callback = SCPI_setDCVoltage,},
 
     // Configure voltage AC
-	{ .pattern = "CONFigure:VOLTage:CHANnel:AC", .callback = NULL,},
-    { .pattern = "CONFigure:VOLTage:CHANnel:AC?", .callback = NULL,},
+	{ .pattern = "CONFigure:VOLTage:CHANnel:AMPLitude", .callback = SCPI_setAmplitudeVoltage,},
 
     // Configure frequency AC
-	{ .pattern = "CONFigure:FREQuency:CHANnel:HZ", .callback = NULL,},
-    { .pattern = "CONFigure:FREQuency:CHANnel:HZ?", .callback = NULL,},
+	{ .pattern = "CONFigure:FREQuency:CHANnel:HZ", .callback = SCPI_setFrequency,},
 
     // Configure phase AC
-	{ .pattern = "CONFigure:PHASe:CHANnel:DEGrees", .callback = NULL,},
-    { .pattern = "CONFigure:PHASe:CHANnel:DEGrees?", .callback = NULL,},
+	{ .pattern = "CONFigure:PHASe:CHANnel:DEGrees", .callback = SCPI_setPhaseOffset,},
 
     // Configure function
-	{ .pattern = "CONFigure:FUNCtion:CHANnel", .callback = NULL,},
-    { .pattern = "CONFigure:FUNCtion:CHANnel?", .callback = NULL,},
+	{ .pattern = "CONFigure:FUNCtion:CHANnel", .callback = SCPI_setChannelFunction,},
 
     // End of list
 	SCPI_CMD_LIST_END
@@ -297,7 +591,7 @@ int main() {
     // Init MCU hardware
     stdio_init_all();
 
-    // Wait a minute to initialize the serial port
+    // Wait a small while to initialize the serial port
     sleep_ms(2000);
 
     // Initialize the SCPI library

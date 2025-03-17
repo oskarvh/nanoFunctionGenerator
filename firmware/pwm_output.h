@@ -90,6 +90,7 @@ typedef struct pwm_channel_config {
     int8_t output_channel_num;  //! Output channel in reference to the hardware. -1 means it's not connected.
     int pwm_dma_channel;        //! DMA data channel number. -1 if no DMA is used.
     int dma_ctrl_channel;       //! DMA control channel number. -1 if no DMA is used.
+    bool output_enabled;        //! True if the output is enabled, false if not.
 } pwm_channel_config_t;
 
 //! Mutex to protect the configuration

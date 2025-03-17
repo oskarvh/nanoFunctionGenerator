@@ -59,7 +59,8 @@ pwm_channel_config_t pwm_config_table[NUM_PWM_CHANNELS] = {
         .amplitude = 0.0,
         .output_channel_num = 0,
         .pwm_dma_channel = -1,
-        .dma_ctrl_channel = -1
+        .dma_ctrl_channel = -1,
+        .output_enabled = false
     }, 
     {
         .channel_num = PWM_PIN_1A, 
@@ -72,7 +73,8 @@ pwm_channel_config_t pwm_config_table[NUM_PWM_CHANNELS] = {
         .amplitude = 1.0,
         .output_channel_num = 1,
         .pwm_dma_channel = -1,
-        .dma_ctrl_channel = -1
+        .dma_ctrl_channel = -1,
+        .output_enabled = false
     },
     {
         .channel_num = PWM_PIN_2A, 
@@ -85,7 +87,8 @@ pwm_channel_config_t pwm_config_table[NUM_PWM_CHANNELS] = {
         .amplitude = 0.0,
         .output_channel_num = 2,
         .pwm_dma_channel = -1,
-        .dma_ctrl_channel = -1
+        .dma_ctrl_channel = -1,
+        .output_enabled = false
     }, 
     {
         .channel_num = PWM_PIN_3A, 
@@ -98,7 +101,8 @@ pwm_channel_config_t pwm_config_table[NUM_PWM_CHANNELS] = {
         .amplitude = 0.0,
         .output_channel_num = 3,
         .pwm_dma_channel = -1,
-        .dma_ctrl_channel = -1
+        .dma_ctrl_channel = -1,
+        .output_enabled = false
     }, 
     {
         .channel_num = PWM_PIN_4A, 
@@ -111,7 +115,8 @@ pwm_channel_config_t pwm_config_table[NUM_PWM_CHANNELS] = {
         .amplitude = 0.0,
         .output_channel_num = 4,
         .pwm_dma_channel = -1,
-        .dma_ctrl_channel = -1
+        .dma_ctrl_channel = -1,
+        .output_enabled = false
     }, 
     {
         .channel_num = PWM_PIN_5A, 
@@ -124,7 +129,8 @@ pwm_channel_config_t pwm_config_table[NUM_PWM_CHANNELS] = {
         .amplitude = 0.0,
         .output_channel_num = 5,
         .pwm_dma_channel = -1,
-        .dma_ctrl_channel = -1
+        .dma_ctrl_channel = -1,
+        .output_enabled = false
     }, 
     {
         .channel_num = PWM_PIN_6A, 
@@ -137,7 +143,8 @@ pwm_channel_config_t pwm_config_table[NUM_PWM_CHANNELS] = {
         .amplitude = 0.0,
         .output_channel_num = 6,
         .pwm_dma_channel = -1,
-        .dma_ctrl_channel = -1
+        .dma_ctrl_channel = -1,
+        .output_enabled = false
     }, 
     {
         .channel_num = PWM_PIN_7A, 
@@ -150,7 +157,8 @@ pwm_channel_config_t pwm_config_table[NUM_PWM_CHANNELS] = {
         .amplitude = 0.0,
         .output_channel_num = 7,
         .pwm_dma_channel = -1,
-        .dma_ctrl_channel = -1
+        .dma_ctrl_channel = -1,
+        .output_enabled = false
     }, 
 };
 
@@ -266,7 +274,22 @@ static uint32_t generate_square_wave_lut(pwm_channel_config_t *pPwmConfig){
 //! @param pPwmConfig Pointer to the configuration
 //! @return <>
 static void configureChannel(pwm_channel_config_t *pPwmConfig){
-    
+    // Set the channel output
+    // Initialize the PWM hardware
+    if(pPwmConfig->output_enabled){
+        gpio_set_function(pPwmConfig->channel_num, GPIO_FUNC_PWM);
+    } else {
+        // Just turn it off. But keep the PWM in the background, since 
+        // it doesn't use any clock cycles.
+        gpio_set_function(pPwmConfig->channel_num, GPIO_FUNC_NULL);
+    }
+
+    // Get the slice
+    uint32_t slice_num = pwm_gpio_to_slice_num(pPwmConfig->channel_num);
+
+    // Save the slice number of this channel
+    pPwmConfig->slice_num = slice_num;
+
     // Check if this is a DC signal
     if(pPwmConfig->signal_config != SIGNAL_CONFIG_DC){
         uint32_t numEntries = 0;
@@ -388,6 +411,9 @@ static void reconfigureChannel(pwm_channel_config_t *pOldPwmConfig, pwm_channel_
         dma_channel_unclaim(pOldPwmConfig->pwm_dma_channel);
     }
 
+    // Free the LUT
+    free(pLUTs[pOldPwmConfig->slice_num]);
+
     // The old config is now disabled, configure the new one
     configureChannel(pNewPwmConfig);
 
@@ -410,21 +436,6 @@ static void init_pwm(){
     uint8_t sliceBitMask = 0;
     if(xSemaphoreTake(PWMConfigMutex, portMAX_DELAY) == pdTRUE){
         for(uint8_t i = 0; i < NUM_PWM_CHANNELS; i++){
-            // Initialize the PWM hardware
-            gpio_set_function(pwm_config_table[i].channel_num, GPIO_FUNC_PWM);
-
-            // Get the slice
-            uint32_t slice_num = pwm_gpio_to_slice_num(pwm_config_table[i].channel_num);
-
-            // Make sure that the slice is not already used
-            if ((1<<slice_num)&sliceBitMask != 0){
-                while(1);
-            }
-            sliceBitMask |= (1<<slice_num);
-
-            // Save the slice number of this channel
-            pwm_config_table[i].slice_num = slice_num;
-
             // Configure the channel
             configureChannel(&(pwm_config_table[i]));        
         }
