@@ -183,6 +183,10 @@ static uint32_t calculateNumEntires(pwm_channel_config_t *pPwmConfig){
 //! @param numEntries Number of entries required in the LUT
 //! @return True if successful, otherwise false
 static bool allocate_lut(uint8_t slice_num, uint32_t numEntries){
+    if(pLUTs[slice_num] != NULL){
+        free(pLUTs[slice_num]);
+        pLUTs[slice_num] = NULL;
+    }
     pLUTs[slice_num] = (uint16_t*)malloc(numEntries*sizeof(uint16_t));
     if(pLUTs[slice_num] == NULL){
         // Unable to allocate
@@ -290,6 +294,10 @@ static void configureChannel(pwm_channel_config_t *pPwmConfig){
     // Save the slice number of this channel
     pPwmConfig->slice_num = slice_num;
 
+    // Set the DMA channel as unclaimed, since if we're here, it's always going to be
+    pPwmConfig->pwm_dma_channel = -1;
+    pPwmConfig->dma_ctrl_channel = -1;
+
     // Check if this is a DC signal
     if(pPwmConfig->signal_config != SIGNAL_CONFIG_DC){
         uint32_t numEntries = 0;
@@ -379,6 +387,7 @@ static void configureChannel(pwm_channel_config_t *pPwmConfig){
     else{
         // Set the set point
         uint32_t set_point = (uint32_t)(pPwmConfig->dc_offset * pPwmConfig->numBits);
+        pwm_set_chan_level(pPwmConfig->slice_num, pPwmConfig->channel_out,set_point);
     }
 
     // Set the wrap based on numBits
@@ -390,29 +399,40 @@ static void configureChannel(pwm_channel_config_t *pPwmConfig){
 //! @param pPwmConfig Pointer to the configuration
 //! @return <>
 static void reconfigureChannel(pwm_channel_config_t *pOldPwmConfig, pwm_channel_config_t *pNewPwmConfig){
-    
-    // Check if there's an active DMA channel in the old config
-    if(pOldPwmConfig->dma_ctrl_channel >= 0){
-        // Stop the control channel
-        dma_channel_abort(pOldPwmConfig->dma_ctrl_channel);
-    }
-    if(pOldPwmConfig->pwm_dma_channel >= 0){
-        // Stop the data channel
-        dma_channel_abort(pOldPwmConfig->pwm_dma_channel);
-    }
-    // Stop the PWM
+    // Disable the PWM signal
     pwm_set_enabled(pOldPwmConfig->slice_num, false);
-    
+
+    // Atomically abort both DMA channels. Ref here: https://forums.raspberrypi.com/viewtopic.php?t=337439
+    if(pOldPwmConfig->pwm_dma_channel >= 0 && pOldPwmConfig->dma_ctrl_channel >= 0) {
+        hw_clear_bits(&dma_hw->ch[pOldPwmConfig->pwm_dma_channel].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+        hw_clear_bits(&dma_hw->ch[pOldPwmConfig->dma_ctrl_channel ].al1_ctrl, DMA_CH0_CTRL_TRIG_EN_BITS);
+        dma_hw->abort = (1 << pOldPwmConfig->dma_ctrl_channel) | (1 << pOldPwmConfig->pwm_dma_channel);
+
+        // Wait for all aborts to complete
+        while (dma_hw->abort) tight_loop_contents();
+
+        // Wait for transfer channel to not be busy.
+        while (dma_hw->ch[pOldPwmConfig->dma_ctrl_channel].ctrl_trig & DMA_CH0_CTRL_TRIG_BUSY_BITS) tight_loop_contents();
+
+        // Wait for reset channel to not be busy.
+        while (dma_hw->ch[pOldPwmConfig->pwm_dma_channel].ctrl_trig & DMA_CH0_CTRL_TRIG_BUSY_BITS) tight_loop_contents();
+    }
+
     // Unclaim the DMA channels
     if(pOldPwmConfig->dma_ctrl_channel >= 0){
         dma_channel_unclaim(pOldPwmConfig->dma_ctrl_channel);
+        pOldPwmConfig->dma_ctrl_channel = -1;
     }
     if(pOldPwmConfig->pwm_dma_channel >= 0){
         dma_channel_unclaim(pOldPwmConfig->pwm_dma_channel);
+        pOldPwmConfig->pwm_dma_channel = -1;
     }
 
-    // Free the LUT
-    free(pLUTs[pOldPwmConfig->slice_num]);
+    // Free the LUT if relevant
+    if(pLUTs[pOldPwmConfig->slice_num] != NULL){
+        free(pLUTs[pOldPwmConfig->slice_num]);
+        pLUTs[pOldPwmConfig->slice_num] = NULL;
+    }
 
     // The old config is now disabled, configure the new one
     configureChannel(pNewPwmConfig);
