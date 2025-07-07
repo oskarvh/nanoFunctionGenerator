@@ -1,0 +1,9 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "445I23D12M00000_footprint")(type "KiCad")(uri "/home/oskar/git/nanoFunctionGenerator/hardware/lib/445I23D12M00000/445I23D12M00000_footprint")(options "")(descr ""))
+  (lib (name "USB4110GFA_footprints")(type "KiCad")(uri "/home/oskar/git/nanoFunctionGenerator/hardware/lib/USB4110-GF-A/USB4110GFA_footprints")(options "")(descr ""))
+  (lib (name "MBRM120")(type "KiCad")(uri "/home/oskar/git/nanoFunctionGenerator/hardware/lib/MBRM120/MBRM120.pretty")(options "")(descr ""))
+  (lib (name "TO-220-3_no_hole")(type "KiCad")(uri "/home/oskar/git/nanoFunctionGenerator/hardware/lib/TO-220-3_no_hole/TO-220-3_no_hole.pretty")(options "")(descr ""))
+  (lib (name "MCU_RaspberryPi_and_Boards")(type "KiCad")(uri "/home/oskar/git/nanoFunctionGenerator/hardware/lib/KiCad-RP-Pico/RP-Pico Libraries/MCU_RaspberryPi_and_Boards.pretty")(options "")(descr ""))
+  (lib (name "DCP020515DU")(type "KiCad")(uri "/home/oskar/git/nanoFunctionGenerator/hardware/lib/DCP020515DU/DCP020515DU")(options "")(descr ""))
+)

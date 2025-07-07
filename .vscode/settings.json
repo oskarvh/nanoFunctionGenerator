@@ -1,0 +1,9 @@
+{
+    "files.associations": {
+        "random": "c",
+        "stdlib.h": "c",
+        "pwm.h": "c",
+        "queue.h": "c"
+    },
+    "cortex-debug.variableUseNaturalFormat": true
+}

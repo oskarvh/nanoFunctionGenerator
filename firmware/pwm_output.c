@@ -53,10 +53,10 @@ pwm_channel_config_t pwm_config_table[NUM_PWM_CHANNELS] = {
         .channel_out = PWM_CHAN_A, 
         .signal_config = SIGNAL_CONFIG_DC, 
         .numBits = 256, 
-        .frequencyHz = 0.0, 
+        .frequencyHz = 1000.0, 
         .dc_offset = 0.5, 
         .phase_offset = 0.0, 
-        .amplitude = 0.0,
+        .amplitude = 1.0,
         .output_channel_num = 0,
         .pwm_dma_channel = -1,
         .dma_ctrl_channel = -1,
@@ -173,6 +173,7 @@ static uint32_t calculateNumEntires(pwm_channel_config_t *pPwmConfig){
     uint32_t numEntries = (uint32_t)(((float)FREQ_PWM)/(pPwmConfig->numBits*pPwmConfig->frequencyHz));
     if(numEntries > MAX_NUM_ENTIRES_LUT){
         // We're going to have issues with allocate enough data for the LUT.
+        printf("Too many entries: %i\r\n", numEntries);
         return 0;
     }
     return numEntries;
@@ -205,10 +206,12 @@ static uint32_t generate_sine_wave_lut(pwm_channel_config_t *pPwmConfig){
     // Check if we could complete the calculation
     if(numEntries < 25){
         // We're going to fail to generate a good sine wave! 
+        printf("Too few num entries: %i!\r\n", numEntries);
         return 0;
     }
     if(!allocate_lut(pPwmConfig->slice_num, numEntries)){
         // Unable to allocate. Return an entry size of 0
+        printf("Unable to allocate!\r\n");
         return 0;
     }
     // Initialize the LUT

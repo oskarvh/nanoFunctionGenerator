@@ -1,0 +1,6 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "di79l12zab")(type "KiCad")(uri "/home/oskar/git/nanoFunctionGenerator/hardware/lib/di79l12zab/di79l12zab.kicad_sym")(options "")(descr ""))
+  (lib (name "MCU_RaspberryPi_and_Boards")(type "KiCad")(uri "/home/oskar/git/nanoFunctionGenerator/hardware/lib/KiCad-RP-Pico/RP-Pico Libraries/MCU_RaspberryPi_and_Boards.kicad_sym")(options "")(descr ""))
+  (lib (name "DCP020515DU")(type "KiCad")(uri "/home/oskar/git/nanoFunctionGenerator/hardware/lib/DCP020515DU/DCP020515DU/DCP020515DU.kicad_sym")(options "")(descr ""))
+)

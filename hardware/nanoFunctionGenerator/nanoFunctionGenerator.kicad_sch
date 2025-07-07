@@ -1,0 +1,136 @@
+(kicad_sch
+	(version 20231120)
+	(generator "eeschema")
+	(generator_version "8.0")
+	(uuid "7abb14f5-9830-402f-b356-0e106a78a619")
+	(paper "A4")
+	(lib_symbols)
+	(sheet
+		(at 22.86 93.98)
+		(size 58.42 27.94)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0.0000)
+		)
+		(uuid "2d849561-ecd6-46df-ba4b-30a45c578f8c")
+		(property "Sheetname" "AnalogFrontEnd"
+			(at 22.86 93.2684 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "AnalogFrontEnd.kicad_sch"
+			(at 22.86 122.5046 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "nanoFunctionGenerator"
+				(path "/7abb14f5-9830-402f-b356-0e106a78a619"
+					(page "4")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 22.86 24.13)
+		(size 58.42 27.94)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0.0000)
+		)
+		(uuid "3ae31f03-7d7a-4581-bd42-491f2bea345a")
+		(property "Sheetname" "mcu"
+			(at 22.86 23.4184 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "mcu.kicad_sch"
+			(at 22.86 52.6546 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(property "Field2" ""
+			(at 22.86 24.13 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(instances
+			(project "nanoFunctionGenerator"
+				(path "/7abb14f5-9830-402f-b356-0e106a78a619"
+					(page "2")
+				)
+			)
+		)
+	)
+	(sheet
+		(at 22.86 58.42)
+		(size 58.42 27.94)
+		(fields_autoplaced yes)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(color 0 0 0 0.0000)
+		)
+		(uuid "b63e501d-5c97-4ca8-bc61-676fc6d1bb23")
+		(property "Sheetname" "power"
+			(at 22.86 57.7084 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left bottom)
+			)
+		)
+		(property "Sheetfile" "power.kicad_sch"
+			(at 22.86 86.9446 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left top)
+			)
+		)
+		(instances
+			(project "nanoFunctionGenerator"
+				(path "/7abb14f5-9830-402f-b356-0e106a78a619"
+					(page "3")
+				)
+			)
+		)
+	)
+	(sheet_instances
+		(path "/"
+			(page "1")
+		)
+	)
+)

@@ -469,7 +469,17 @@ scpi_command_t scpi_commands[SCPI_MAX_NUM_COMMANDS] = {
 
     // Configure function
 	{ .pattern = "CONFigure:FUNCtion:CHANnel", .callback = SCPI_setChannelFunction,},
-
+    // CONF:FUNC:CHAN 0,OFF
+    // CONF:FUNC:CHAN 0,SINE
+    // CONF:FREQ:CHAN:HZ 0,10kHz
+    // CONF:VOLT:CHAN:DC 0,3.3
+    // CONF:VOLT:CHAN:DC 0,3
+    // CONF:VOLT:CHAN:DC 0,2.5
+    // CONF:VOLT:CHAN:DC 0,2
+    // CONF:VOLT:CHAN:DC 0,1.65
+    // CONF:VOLT:CHAN:DC 0,1
+    // CONF:VOLT:CHAN:DC 0,0.5
+    // CONF:VOLT:CHAN:DC 0,0
     // End of list
 	SCPI_CMD_LIST_END
 };
